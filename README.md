@@ -1,3 +1,3 @@
 # Overwatch-Database
-Overwatch Tournament and Event Manager
-In this project, I delved into Oracle. My goal was to create a database to manage tournaments and events for Overwatch. I added a standalone SQL script for this purpose and created a detailed template to handle the project effectively.
+Overwatch Turnier- und Event-Manager:
+In diesem Projekt habe ich mich mit Oracle auseinandergesetzt. Mein Ziel war es, eine Datenbank zur Verwaltung von Turnieren und Events für Overwatch zu erstellen. Ich habe ein eigenständiges SQL-Skript für diesen Zweck hinzugefügt und eine detaillierte Vorlage erstellt, um das Projekt effektiv zu handhaben.
