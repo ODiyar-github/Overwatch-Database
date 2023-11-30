@@ -1,0 +1,210 @@
+/*Anwendungskontext: Spiel-Events und Turniere in "Overwatch" */
+
+--Drop-Statements für bestehende Tabellen mit CASCADE CONSTRAINTS
+DROP TABLE Event CASCADE CONSTRAINTS;
+DROP TABLE Tournament CASCADE CONSTRAINTS;
+DROP TABLE Team CASCADE CONSTRAINTS;
+DROP TABLE Map CASCADE CONSTRAINTS;
+DROP TABLE Player CASCADE CONSTRAINTS;
+DROP TABLE Hero CASCADE CONSTRAINTS;
+DROP TABLE Ranking CASCADE CONSTRAINTS;
+DROP TABLE Game CASCADE CONSTRAINTS;
+
+--Erstelle Event Tabelle
+CREATE TABLE Event (
+  EventID NUMBER GENERATED ALWAYS AS IDENTITY,
+  EventName VARCHAR2(50),
+  EventDate VARCHAR2(50),
+  EventLocation VARCHAR2(50),
+  EventDescription VARCHAR2(255),
+  PRIMARY KEY (EventID)
+);
+
+--Erstelle Tournament Tabelle
+CREATE TABLE Tournament (
+  TournamentID NUMBER GENERATED ALWAYS AS IDENTITY,
+  EventID NUMBER,
+  TournamentName VARCHAR2(50),
+  TournamentDate VARCHAR2(50),
+  TournamentMaxTeamSize INTEGER DEFAULT 5,
+  TournamentExperienceLevel INTEGER CHECK (TournamentExperienceLevel >= 3500 AND TournamentExperienceLevel <=5000),
+  PRIMARY KEY (TournamentID),
+  FOREIGN KEY (EventID) REFERENCES Event(EventID)
+);
+
+--Erstelle Team Tabelle
+CREATE TABLE Team (
+  TeamID NUMBER GENERATED ALWAYS AS IDENTITY,
+  TeamName VARCHAR2(50),
+  TeamClanTag VARCHAR2(5),
+  TournamentID NUMBER,
+  VictoriousTeamID INTEGER DEFAULT 0,
+  LosingTeamID INTEGER DEFAULT 0,
+  PRIMARY KEY (TeamID),
+  FOREIGN KEY (TournamentID) REFERENCES Tournament(TournamentID)
+);
+
+--Erstelle Map Tabelle
+CREATE TABLE Map (
+  MapID NUMBER GENERATED ALWAYS AS IDENTITY,
+  MapName VARCHAR2(20),
+  MapGameMode VARCHAR2(40),
+  PRIMARY KEY (MapID)
+);
+
+--Erstelle Player Tabelle
+CREATE TABLE Player (
+  PlayerID NUMBER GENERATED ALWAYS AS IDENTITY,
+  PlayerName VARCHAR2(40),
+  PlayerExperienceLevel INTEGER CHECK (PlayerExperienceLevel >= 0 AND PlayerExperienceLevel <=5000),
+  PlayerInformation VARCHAR2(255),
+  TeamID NUMBER,
+  PRIMARY KEY (PlayerID),
+  FOREIGN KEY (TeamID) REFERENCES Team(TeamID)
+);
+
+--Erstelle Hero Tabelle
+CREATE TABLE Hero (
+  HeroID NUMBER GENERATED ALWAYS AS IDENTITY,
+  HeroName VARCHAR2(20),
+  HeroSkills VARCHAR2(255),
+  PlayerID NUMBER,
+  PRIMARY KEY (HeroID),
+  FOREIGN KEY (PlayerID) REFERENCES Player(PlayerID)
+);
+
+--Erstelle Ranking Tabelle
+CREATE TABLE Ranking (
+  TournamentID NUMBER,
+  PlayerID NUMBER,
+  RankingPlacement VARCHAR2(50),
+  PRIMARY KEY (TournamentID, PlayerID),
+  FOREIGN KEY (TournamentID) REFERENCES Tournament(TournamentID),
+  FOREIGN KEY (PlayerID) REFERENCES Player(PlayerID)
+);
+
+--Erstelle Game Tabelle
+CREATE TABLE Game (
+  GameID NUMBER GENERATED ALWAYS AS IDENTITY,
+  TournamentID NUMBER,
+  MapID NUMBER,
+  VictoriousTeamID NUMBER,
+  LosingTeamID NUMBER,
+  GameTime VARCHAR2(50),
+  PRIMARY KEY (GameID),
+  FOREIGN KEY (TournamentID) REFERENCES Tournament(TournamentID),
+  FOREIGN KEY (MapID) REFERENCES Map(MapID),
+  FOREIGN KEY (VictoriousTeamID) REFERENCES Team(TeamID),
+  FOREIGN KEY (LosingTeamID) REFERENCES Team(TeamID)
+);
+
+--Überprüfe für jeden Spieler, ob sein Spielerfahrungsniveau niedriger ist als das Turniererfahrungsniveau.
+CREATE OR REPLACE TRIGGER CheckPlayerExperienceTrigger
+BEFORE INSERT OR UPDATE ON Player
+FOR EACH ROW
+DECLARE
+  v_tournament_experience INTEGER;
+BEGIN
+  -- Holen Sie sich die vorgesehenen Erfahrungswerte des Turniers
+  SELECT TournamentExperienceLevel INTO v_tournament_experience
+  FROM Tournament t
+  JOIN Team tm ON t.TournamentID = tm.TournamentID
+  WHERE tm.TeamID = :NEW.TeamID;
+
+  -- Überprüfen, ob die Erfahrung des Spielers größer ist als die vorgesehene Turniererfahrung
+  IF :NEW.PlayerExperienceLevel < v_tournament_experience THEN
+    RAISE_APPLICATION_ERROR(-20001, 'Spielererfahrung ist zu wenig, als die vorgesehene Turniererfahrung.');
+  END IF;
+END;
+/
+
+--Kontrolliert, ob die Spieleranzahl weniger als die vorausgesetzte maximale anzahl an Spielern pro Team.
+CREATE OR REPLACE TRIGGER CheckTeamFullnessTrigger
+BEFORE INSERT OR UPDATE ON Player
+FOR EACH ROW
+DECLARE
+  v_team_id Player.TeamID%TYPE; -- Variable, um die TeamID zu speichern
+  v_player_count INTEGER;
+  v_max_team_size INTEGER;
+  v_future_player_count INTEGER; -- Variable für zukünftige Spieleranzahl im Team
+BEGIN
+  -- Holen Sie sich die TeamID des betroffenen Spielers
+  v_team_id := :NEW.TeamID;
+
+  -- Zähle die Anzahl der Spieler im Team
+  SELECT COUNT(*) INTO v_player_count
+  FROM Player
+  WHERE TeamID = v_team_id;
+
+  -- Holen Sie sich die maximale Teamgröße aus dem zugehörigen Turnier
+  SELECT TournamentMaxTeamSize INTO v_max_team_size
+  FROM Tournament t
+  JOIN Team tm ON t.TournamentID = tm.TournamentID
+  WHERE tm.TeamID = v_team_id;
+
+  -- Berechne die zukünftige Spieleranzahl im Team
+  v_future_player_count := v_player_count;
+
+  -- Überprüfen, ob das Team nach der Aktion vollständig oder überfüllt wäre
+  IF v_future_player_count = v_max_team_size THEN
+    RAISE_APPLICATION_ERROR(-20003, 'Das Team mit der TeamID ' || v_team_id || ' wäre nach diesem Vorgang Überfüllt.');
+  END IF;
+END;
+/
+
+--Verhindere, dass Spieler gelöscht werden, solange sie noch in einem aktiven Team sind.
+CREATE OR REPLACE TRIGGER PreventPlayerDeletionTrigger
+BEFORE DELETE ON Player
+FOR EACH ROW
+DECLARE
+  v_team_count INTEGER;
+BEGIN
+  SELECT COUNT(*)
+  INTO v_team_count
+  FROM Team
+  WHERE TeamID = :OLD.TeamID;
+
+  IF v_team_count > 0 THEN
+    RAISE_APPLICATION_ERROR(-20004, 'Der Spieler gehört immer noch zu einem aktiven Team und kann nicht gelöscht werden.');
+  END IF;
+END;
+/
+
+--Füge ein Event ein
+INSERT INTO Event (EventName, EventDate, EventLocation, EventDescription)
+VALUES ('Mein Event', SYSDATE, 'Ort', 'Beschreibung');
+--Füge ein Tournament ein
+INSERT INTO Tournament (EventID, TournamentName, TournamentDate, TournamentExperienceLevel)
+VALUES (1, 'Mein Turnier', SYSDATE, 4000);
+-- Füge ein Team ein
+INSERT INTO Team (TeamName, TeamClanTag, TournamentID)
+VALUES ('TeamA', 'TAG1', 1);
+INSERT INTO Team (TeamName, TeamClanTag, TournamentID)
+VALUES ('TeamB', 'TAG2', 1);
+
+-- Füge Spieler zu TeamA ein 
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler1', 4000, 'Info1', 1);
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler2', 4000, 'Info2', 1);
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler3', 4000, 'Info3', 1);
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler4', 4000, 'Info4', 1);
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler5', 4000, 'Info5', 1);
+
+-- Füge Spieler zu TeamB ein 
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler1', 4000, 'Info1', 2);
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler2', 4000, 'Info2', 2);
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler3', 4000, 'Info3', 2);
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler4', 4000, 'Info4', 2);
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler5', 4000, 'Info5', 2);
+
+--Verändere die PlayerExperienceLevel unterhalb der TournamentExperienceLevel: CheckPlayerExperienceTrigger
+UPDATE Player SET PlayerExperienceLevel = 2500 WHERE TeamID = 2 AND PlayerName = 'Spieler4';
+
+--Füge Spieler ein in TeamA, das bereits voll ist: CheckTeamFullnessTrigger
+INSERT INTO Player (PlayerName, PlayerExperienceLevel, PlayerInformation, TeamID) VALUES ('Spieler6', 4000, 'Info6', 1);
+
+--Lösche Spieler von der Aktiven Liste: PreventPlayerDeletionTrigger
+DELETE FROM Player WHERE TeamID = 1 AND PlayerName = 'Spieler3'; 
+
+
+--COMMIT um Änderungen vorzunehmen
+COMMIT;
